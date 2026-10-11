@@ -190,11 +190,12 @@ def _same(a_title, a_ents, a_type, b_title, b_ents, b_type,
         # 보면 분야만 같은 기사가 전부 묶인다. 실측(2026-10-11): '캐롯 합병
         # 1년 한화손보 적자'(deal)와 '손보협회 8주룰 신고센터'(regulation)가
         # '자동차보험' 하나로 묶여, 적합도 63 짜리 한화 건이 사라졌다.
-        _ga = events.ACTION_GROUPS.get(a_type or "other", "other")
-        _gb = events.ACTION_GROUPS.get(b_type or "other", "other")
-        if _ga != _gb:
-            return events._distinctive_count(a_title, b_title, ea | eb) >= 2
-        return events._distinctive_overlap(a_title, b_title, ea | eb)
+        # **엔티티가 하나도 안 겹치면 변별어 두 개를 요구한다.**
+        # 낱말 하나로 묶으면 무관한 기사가 엮인다. 실측(2026-10-11):
+        # '공정위 대기업 건전성 평가지표'(공정위·한화)와 '가상자산거래소
+        # 의결권 제한'(국회·금융위)이 **'제기' 한 낱말**로 같은 사건이 됐다
+        # — "신중론 제기" 와 "소지 제기". 유사도는 0.062 였다.
+        return events._distinctive_count(a_title, b_title, ea | eb) >= 2
 
     score = 2 if len(inter) >= 2 else 1
 
