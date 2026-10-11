@@ -185,6 +185,15 @@ def _same(a_title, a_ents, a_type, b_title, b_ents, b_type,
         # 내용이 강하게 겹칠 때만 같은 사건으로 본다.
         if events.similarity(a_title, b_title) >= events.TITLE_SIMILARITY:
             return True
+        # **하는 일까지 다르면 변별어 하나로는 안 묶는다.**
+        # 엔티티도 안 겹치고 action 도 갈리는데 낱말 하나가 같다고 한 사건으로
+        # 보면 분야만 같은 기사가 전부 묶인다. 실측(2026-10-11): '캐롯 합병
+        # 1년 한화손보 적자'(deal)와 '손보협회 8주룰 신고센터'(regulation)가
+        # '자동차보험' 하나로 묶여, 적합도 63 짜리 한화 건이 사라졌다.
+        _ga = events.ACTION_GROUPS.get(a_type or "other", "other")
+        _gb = events.ACTION_GROUPS.get(b_type or "other", "other")
+        if _ga != _gb:
+            return events._distinctive_count(a_title, b_title, ea | eb) >= 2
         return events._distinctive_overlap(a_title, b_title, ea | eb)
 
     score = 2 if len(inter) >= 2 else 1
@@ -1597,6 +1606,53 @@ def quality_of(picked: list) -> float:
     return len(picked) * 1000 + sum(fits) / len(fits) + fresh
 
 
+def guarantee_count(picked: list, store, since: float, until: float,
+                    want: int, asof: float, prior_issues=None,
+                    story_tokens=None) -> list:
+    """**끝까지 10건을 채운다.** 점수 하한만 풀고, 겹침 기준은 그대로 둔다.
+
+    발주자 지정(2026-10-11): "앞으로도 이렇게 10건 못 올리는 사태가
+    발생되지 않게 철저하게 지켜."
+
+    주말·연휴에는 창 안에 사건이 열 개가 안 된다. 그렇다고 같은 사건을 두 번
+    싣거나(집합론) 며칠 전 묵은 기사를 끌어올 수는 없다. 둘 다 발주자가
+    금지한 것이다. 그래서 **양보할 수 있는 것 하나만** 양보한다 — 적합도
+    하한이다. 점수가 낮다는 것은 '덜 중요하다' 는 뜻이지 '중복' 이나
+    '묵었다' 는 뜻이 아니다.
+
+    풀지 않는 것: 같은 사건·이전 판 기발행·타 날짜 Top10·A팀 기공유·
+    이어지는 사건·유료/본문 미확보·창(전날까지).
+    """
+    if len(picked) >= want:
+        return picked
+    day = 24 * 3600
+    for back in range(0, max(1, settings.cs_top10_max_fill_days) + 1):
+        if len(picked) >= want:
+            break
+        lo = since - day * back
+        hi = until if back == 0 else since - day * (back - 1)
+        rows = store.cstop10_candidates(lo, hi, 0)      # 점수 하한 없이
+        rows = drop_stale(rows, origin_floor_day(since))
+        if back == 0:
+            rows = drop_before_window(rows, since)
+        if not rows:
+            continue
+        before = len(picked)
+        picked = topup(picked, rows, store, asof, want,
+                       prior=store.cstop10_recent_clusters(lo - 2 * day),
+                       ignore_cat_cap=True, min_fit=0,
+                       prior_issues=prior_issues, story_tokens=story_tokens)
+        if len(picked) > before:
+            print(f"[cstop10] 하한 해제 보충({back}일 전) "
+                  f"{len(picked) - before}건 → {len(picked)}건")
+    if len(picked) < want:
+        # 여기까지 와서도 모자라면 **기준을 지킨 결과**다. 조용히 넘기지
+        # 않는다 — 운영자가 알아야 다음 수를 정한다.
+        print(f"[cstop10] ⚠️ {len(picked)}/{want}건 — 겹침 기준을 지키면 "
+              f"서로 다른 사건이 이만큼뿐이다. 수집량을 확인하라.")
+    return picked
+
+
 def select_for(store, asof: float, by_origin: bool = False) -> list:
     """그 발행 시각 기준으로 뽑은 결과. run() 과 같은 길을 쓴다.
 
@@ -1664,6 +1720,9 @@ def select_for(store, asof: float, by_origin: bool = False) -> list:
                             prior=store.cstop10_recent_clusters(
                                 since - 2 * day), since=since,
                             prior_issues=_pi, story_tokens=_st)
+    # 마지막 보증 — 점수 하한만 풀어 10건을 맞춘다.
+    picked = guarantee_count(picked, store, since, until, want, asof,
+                             prior_issues=_pi, story_tokens=_st)
     return picked
 
 
@@ -2118,6 +2177,11 @@ async def run(client, store, dry_run: bool | None = None,
         picked, rows, store, want,
         prior=store.cstop10_recent_clusters(since - 2 * 24 * 3600),
         since=since, prior_issues=prior_issue_themes(store, since),
+        story_tokens=running_story_tokens(store, since))
+    picked = guarantee_count(
+        picked, store, since, until, want,
+        asof or datetime.now(KST).timestamp(),
+        prior_issues=prior_issue_themes(store, since),
         story_tokens=running_story_tokens(store, since))
 
     if len(picked) < want:
