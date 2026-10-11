@@ -156,7 +156,15 @@ class Settings:
     # "10/6 06:50에 올라가는 완성본은 10/5 06:50 이후 기사와 10/6 새벽
     #  기사여야 한다." 전날 보충을 열어 두니 10/1~10/4 기사가 섞였다.
     # 10건이 안 차면 **창 안에서** 상한을 풀어 채운다(아래 cstop10.select).
-    cs_top10_fill_days: int = int(os.getenv("CS_TOP10_FILL_DAYS", "0"))
+    # 1 = **바로 전날 하루까지만** 거슬러 간다.
+    #
+    # 0 으로 닫았던 것을 되돌린다(2026-10-11). 10/05 에 "10/6 판은 10/5
+    # 기사여야 한다" 는 지적을 받고 0 으로 막았는데, 그 지적의 대상은
+    # **3~5일 전 묵은 기사**였다. 발주자가 허용한 범위는 그 전부터
+    # "월요일 분이 일요일 기사로 안 차면 토요일 저녁·오후 것" — 하루다.
+    # 닫아 둔 탓에 주말 판이 무너졌다: 토 7건, 일 3건(창 안 후보가 각각
+    # 8건·1건뿐이라 원천적으로 10건이 안 됐다).
+    cs_top10_fill_days: int = int(os.getenv("CS_TOP10_FILL_DAYS", "1"))
     # **최후 보충 한계.** 위 1일까지 뒤져도 10건이 안 차면 여기까지 더 거슬러
     # 간다. "무조건 10건" 이 수칙이고, 자리가 빈 Top10 은 그 자체로 사고다
     # (2026-10-05 발주자 지정). 기준은 그대로다 — 같은 사건 접기·기게재
@@ -192,7 +200,8 @@ class Settings:
         if t.strip()
     ])
 
-    cs_top10_max_fill_days: int = int(os.getenv("CS_TOP10_MAX_FILL_DAYS", "0"))
+    # 최후 보충도 하루까지. 그 이상은 "묵은 기사" 라 발주자가 금지했다.
+    cs_top10_max_fill_days: int = int(os.getenv("CS_TOP10_MAX_FILL_DAYS", "1"))
     daily_brief_count: int = int(os.getenv("DAILY_BRIEF_COUNT", "10"))
     # 같은 회사/같은 사건이 브리프를 독식하지 않게 하는 상한 (§24-6)
     daily_brief_max_per_entity: int = int(os.getenv("DAILY_BRIEF_MAX_PER_ENTITY", "4"))

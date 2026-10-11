@@ -135,6 +135,14 @@ def _distinctive(words: set) -> set:
             if len(w) >= 3 and w not in _GENERIC_WORDS and not w.isdigit()}
 
 
+# 규제·감독 기관. 사건의 주체라기보다 배경으로 적히는 일이 훨씬 많다.
+_REGULATOR_ENTS = frozenset({
+    "금융위원회", "금융감독원", "공정거래위원회", "한국은행", "기획재정부",
+    "국세청", "예금보험공사", "금융위", "금감원", "공정위", "국회",
+    "한국금융연구원", "보험연구원", "자본시장연구원",
+})
+
+
 def _same(a_title, a_ents, a_type, b_title, b_ents, b_type,
           strict: bool = False) -> bool:
     """두 기사가 같은 사건인가. **신호를 합산해서** 판정한다.
@@ -162,6 +170,13 @@ def _same(a_title, a_ents, a_type, b_title, b_ents, b_type,
 
     ea, eb = ents_of(a_ents, a_title), ents_of(b_ents, b_title)
     inter = ea & eb
+    # **규제기관만 겹친 것은 겹친 게 아니다.**
+    # 금융위·금감원·공정위는 규제 기사 거의 전부에 주체로 적힌다. 이걸로
+    # 엔티티 신호(+1)를 주면, 내용이 전혀 다른 기사들이 'AI' 같은 흔한 낱말
+    # 하나만 더 겹쳐도 문턱을 넘는다(2026-10-11 실측: AI 공급업체 집중위험 ↔
+    # 해킹 전 공격 경고 ↔ AI 자산관리 지각변동이 한 사건으로 묶였다).
+    if inter and not (inter - _REGULATOR_ENTS):
+        inter = frozenset()
     if not inter:
         # **교집합이 비어도 포기하지 않는다.** 모델이 같은 사건의 엔티티를
         # 기사마다 다르게 적는 것이 애초의 문제다. 실측: 같은 볼트온 기사가
