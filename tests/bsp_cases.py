@@ -902,6 +902,74 @@ async def test_llm():
             check(f"{cid} key issue 후보", bool(ki), True)
 
 
+def test_regress_20261104():
+    """2026-11-04 발주자 지적 회귀 — "왜 top10에 이전과 똑같은 중복이 들어가냐".
+
+    세 결함이 겹쳤다.
+      D1 초안 품질비교의 신선도 가중이 1점뿐이라, 11/03 06:50 에 11/02 기사로
+         굳은 11/04 초안이 그날 재생성 4회를 **전부 기각**했다(11/03 발행 78건,
+         초안 반영 0건).
+      D2 `_norm` 이 괄호 안을 버려 "한국항공우주산업(KAI)" 에서 `KAI` 가 증발,
+         "KAI 노조 상경투쟁" 과의 제목 유사도가 0.00 이 됐다. KAI 가 엔티티
+         사전에 없어 별칭 정규화도 걸리지 않았다.
+      D3 `same_event` 의 버킷 게이트가 ±1 이라 실효 비교범위가 6일 —
+         LOOKBACK_SEC(10일)이 죽고 홍콩 ELS 제재가 7회 발행됐다.
+    """
+    import time
+    import cstop10, events
+    from config import canonical_entity
+    print("\n[회귀 2026-11-04] 중복 3결함")
+
+    # ── D2 ────────────────────────────────────────────────────────────
+    check("KAI 가 엔티티 사전에 있다", canonical_entity("KAI"), "한국항공우주산업")
+    check("괄호 안 내용이 토큰으로 남는다",
+          "한국항공우주산업" in events._tokens("한화에어로, 한국항공우주산업(KAI) 지분"),
+          True)
+    check("KAI 별칭이 정식명 토큰으로 정규화",
+          "한국항공우주산업" in events._tokens("KAI 노조 상경투쟁"), True)
+
+    K1 = ("한화에어로스페이스, 한국항공우주산업(KAI) 지분 보유 목적 '경영 참여'로 변경",
+          "한화에어로스페이스,한화그룹", "governance")
+    K2 = ("KAI 노조, 청와대 앞 상경투쟁 실시…한화 인수 반대 입장 표명",
+          "한화그룹,한화에어로스페이스,한국항공우주산업", "acquisition")
+    check("한화-KAI 큰 집합 ↔ 작은 집합은 한 사건", cstop10._same(*K1, *K2), True)
+
+    # 과잉병합 가드 — 같은 한화 건이라도 사안이 다르면 안 묶인다.
+    K3 = ("한화생명, 4000억 원 규모 후순위채 발행 추진…차환 수요 대응",
+          "한화생명,한화그룹", "investment")
+    check("KAI 건과 후순위채 건은 다른 사건", cstop10._same(*K1, *K3), False)
+
+    # ── D3 ────────────────────────────────────────────────────────────
+    ents = frozenset({"금융위원회", "금융감독원"})
+    E1 = "홍콩 ELS 과징금 4조 원에서 3,000억 원대로 감경…은행 제재 4일 확정"
+    E2 = "금융위, 내달 홍콩 ELS 제재 마무리… 과징금 감경 여부 주목"
+    # 실제 사고 버킷 그대로: 6919 ↔ 6915 (차이 4)
+    check("버킷이 벌어져도 LOOKBACK 안이면 같은 사건",
+          events.same_event((ents, "regulation", 6919), E1,
+                            (ents, "regulation", 6915), E2), True)
+    # LOOKBACK(10일) 격자(3일) 밖은 여전히 다른 사건 — 몇 달 전 기사까지
+    # 끌어오면 안 된다.
+    check("LOOKBACK 밖은 다른 사건",
+          events.same_event((ents, "regulation", 6919), E1,
+                            (ents, "regulation", 6880), E2), False)
+
+    # ── D1 ────────────────────────────────────────────────────────────
+    # 같은 10건이면, 적합도 평균이 조금 낮아도 **신선한 쪽**이 이겨야 한다.
+    now = time.time()
+    def _row(head, ent, sc, origin):
+        return ("k" + head[:4], head, "http://x", "hanwha_group", "",
+                sc, 0, "cid", ent, "요약", "왜", now, "other", origin, "")
+    stale = [(0, _row(f"한화생명 전략 점검 {i}", "한화생명", 90,
+                      now - 30 * 3600)) for i in range(10)]
+    fresh = [(0, _row(f"한화손해보험 전략 점검 {i}", "한화손해보험", 88,
+                      now - 2 * 3600)) for i in range(10)]
+    check("신선한 초안이 묵은 초안을 이긴다",
+          cstop10.quality_of(fresh) > cstop10.quality_of(stale), True)
+    # 건수 우선순위는 그대로 — 9건은 10건을 절대 못 이긴다.
+    check("건수가 신선도보다 앞선다",
+          cstop10.quality_of(stale) > cstop10.quality_of(fresh[:9]), True)
+
+
 def main():
     print("═" * 78)
     print("  Strategy Pulse 회귀 검사")
@@ -912,6 +980,7 @@ def main():
     test_event_dedup()
     test_cstop10()
     test_cstop10_dedup()
+    test_regress_20261104()
     test_cstop10_criteria()
     test_iv_paywall()
     test_shared_and_ads()

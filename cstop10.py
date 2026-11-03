@@ -1604,7 +1604,13 @@ def quality_of(picked: list) -> float:
         except (TypeError, ValueError):
             ages.append(48.0)
     fresh = max(0.0, 1.0 - (sum(ages) / len(ages)) / 48.0)
-    return len(picked) * 1000 + sum(fits) / len(fits) + fresh
+    # **가중을 1 → 25 로 올린다.**
+    # 1점은 적합도 평균 소수점에 묻힌다. 실측(2026-11-04): 11/04 초안이
+    # 11/03 06:50(확정본 직후 자가복구)에 11/02 기사 10건으로 만들어진 뒤,
+    # 12:00·18:00·22:00·04:00 재생성이 **전부 기각**됐다 — 11/03 하루에
+    # 78건이 들어왔는데 초안 반영은 0건이었다. 묵은 판의 적합도 평균이
+    # 0.4 높았던 것이 전부다. 건수(×1000) 우선순위는 그대로 둔다.
+    return len(picked) * 1000 + sum(fits) / len(fits) + fresh * 25
 
 
 def guarantee_count(picked: list, store, since: float, until: float,

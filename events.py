@@ -64,13 +64,36 @@ _STOP = {
 
 def _norm(text: str) -> str:
     text = unicodedata.normalize("NFKC", text or "")
-    text = re.sub(r"\[[^\]]*\]|\([^)]*\)", " ", text)     # [단독] (종합) 제거
+    # **괄호는 지우되 안쪽 내용은 남긴다.**
+    # 통째로 버리면 별칭 단서가 사라진다. 실측(2026-11-04): "한국항공우주
+    # 산업(KAI) 지분 보유 목적 변경" 에서 `KAI` 가 증발해 "KAI 노조 상경
+    # 투쟁" 과의 제목 유사도가 0.00 으로 나왔고, Top10 에 한화-KAI 건이
+    # 큰 집합·작은 집합으로 나란히 실렸다.
+    # `[단독]`·`(종합)` 같은 머리말은 _STOP 이 이미 걸러낸다.
+    text = re.sub(r"[\[\]()]", " ", text)
     text = re.sub(r"[^\w가-힣A-Za-z0-9 ]+", " ", text)
     return re.sub(r"\s+", " ", text).strip().lower()
 
 
+_CANON_CACHE: dict[str, str] = {}
+
+
+def _canon_token(tok: str) -> str:
+    """별칭 토큰을 정식명으로 되돌린다. 모르면 그대로.
+
+    엔티티 집합에는 `canonical_entity` 가 걸려 있는데 **제목 토큰에는
+    걸려 있지 않았다.** 그래서 한쪽이 `KAI`, 다른 쪽이 `한국항공우주산업`
+    이면 공통 토큰이 0개가 돼 유사도가 0.00 이 된다(2026-11-04 사고).
+    """
+    hit = _CANON_CACHE.get(tok)
+    if hit is None:
+        hit = (canonical_entity(tok) or tok).lower()
+        _CANON_CACHE[tok] = hit
+    return hit
+
+
 def _tokens(title: str) -> set[str]:
-    return {t for t in _norm(title).split()
+    return {_canon_token(t) for t in _norm(title).split()
             if len(t) > 1 and t not in _STOP}
 
 
@@ -142,7 +165,17 @@ def same_event(a: tuple, title_a: str, b: tuple, title_b: str) -> bool:
     # 격자 자체는 없애지 않는다 — 몇 달 전 같은 회사의 다른 딜까지 묶이는
     # 것을 막아 주기 때문이다. 대신 **이웃 격자 하나까지** 허용해 경계에
     # 걸친 같은 사건을 살린다.
-    if action_a != action_b or abs(bucket_a - bucket_b) > 1:
+    # **이웃 하나(±1)로는 좁다.** 격자가 3일이라 실효 비교범위가 6일이 되고,
+    # LOOKBACK_SEC(10일)이 죽는다. 실측(2026-11-04): 홍콩 ELS 제재 한 사안이
+    # 버킷 6910·6911·6913·6915·6916·6917·6919 로 갈려 **7회 발행**됐다 —
+    # 엔티티(금감원+금융위)와 action(regulation)이 완전히 같았는데 6917↔6919
+    # 가 차이 2라 비교조차 되지 않았다. 되짚는 범위와 격자를 맞춘다.
+    # +1 은 격자 어긋남 몫이다. 버킷은 절대 격자라 10일 차이도 경계에
+    # 걸치면 버킷 4칸이 벌어진다(실측: 6915 ↔ 6919).
+    # 되짚는 창은 호출부(store.recent_events·delete_dups)가 이미 좁힌다 —
+    # 여기서는 그 창을 **넘지 않게만** 막는다.
+    _max_gap = max(1, LOOKBACK_SEC // EVENT_WINDOW_SEC + 1)
+    if action_a != action_b or abs(bucket_a - bucket_b) > _max_gap:
         return False
     if not (ents_a & ents_b):
         # **교집합이 비어도 포기하지 않는다.** 모델이 같은 사건의 엔티티를

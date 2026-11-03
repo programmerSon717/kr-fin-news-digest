@@ -305,5 +305,13 @@
       "인민은행",
       "PBOC"
     ]
+  },
+  "industry": {
+    "_label": "비금융 산업 (한화 딜 상대·피인수 후보)",
+    "한국항공우주산업": [
+      "KAI",
+      "한국항공우주",
+      "Korea Aerospace Industries"
+    ]
   }
 }
