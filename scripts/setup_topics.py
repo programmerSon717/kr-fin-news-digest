@@ -39,6 +39,7 @@ ENV_NAMES = {
     "daily_brief":         "TG_TOPIC_DAILY_BRIEF",
     "cs_top10":            "TG_TOPIC_CS_TOP10",
     "cs_top10_links":      "TG_TOPIC_CS_TOP10_LINKS",
+    "cs_top10_upload":     "TG_TOPIC_CS_TOP10_UPLOAD",
 }
 
 

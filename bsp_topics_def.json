@@ -375,6 +375,18 @@
       "include_patterns": [],
       "exclude_patterns": [],
       "note": "Aggregation Topic. 📌 A팀 Top10 에 실린 10건의 **원문 기사 주소만** 한 건씩 따로 게시한다(2026-10-05 사용자 지정: 한 메시지에 몰아 담지 않는다). 메시지당 미리보기 카드가 하나씩 붙어 링크를 바로 확인·복사할 수 있게 하는 것이 목적이다. 본문·요약은 넣지 않는다 — 그건 📌 A팀 Top10 쪽 역할이다."
+    },
+    {
+      "id": "cs_top10_upload",
+      "telegram_topic_name": "⬆️ top10(업로드용)",
+      "priority": 0,
+      "base_weight": 0,
+      "aggregation": true,
+      "entities": [],
+      "keywords": [],
+      "include_patterns": [],
+      "exclude_patterns": [],
+      "note": "Aggregation Topic. 📌 A팀 Top10 에 실린 **그 10건 그대로**를 단톡에 복붙할 형태로 게시한다(2026-11-05 발주자 지정). 날짜 구분 메시지 1건(`📌 11월 6일 Top10`)을 먼저 치고, 바로 아래에 **원문 주소만** 한 건당 한 메시지로 10개를 보낸다. 제목·불릿은 넣지 않는다 — 텔레그램이 붙이는 미리보기 카드가 매체명·제목·요약·썸네일을 대신한다. 과장·차장이 단톡에 올리는 형태와 같게 맞춘 것이다. 🔗 top10(링크용)과 다르다 — 그쪽은 10건을 한 메시지에 묶고 불릿도 넣는다."
     }
   ]
 }

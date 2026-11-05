@@ -1137,6 +1137,39 @@ def _bullets_of(r) -> str:
     return f"<blockquote>• {html.escape(lede)}</blockquote>" if lede else ""
 
 
+
+def render_upload(picked: list, asof: float, _store=None) -> list[tuple[str, str]]:
+    """⬆️ top10(업로드용) 탭에 나갈 [(본문, 미리보기주소)].
+
+    발주자 지정(2026-11-05): "토픽 하나 새로 파서 top10(업로드용), 여기다가
+    top10 에서 나오는 거 그대로. 날짜 구분할 때 채팅 하나 치고 그 바로 아래에".
+
+    **단톡에 그대로 복붙하는 형태다.** 과장·차장이 올리는 모양과 같게 맞췄다 —
+      · 첫 메시지: `📌 11월 6일 Top10` (날짜 구분)
+      · 이후 10개: **원문 주소만** 한 건당 한 메시지
+
+    제목도 불릿도 넣지 않는다. 텔레그램이 주소마다 붙이는 미리보기 카드가
+    매체명·제목·요약·썸네일을 대신하고, 그게 단톡에서 실제로 보이는 모양이다.
+    본문을 같이 쓰면 카드와 글자가 겹쳐 두 번 읽힌다.
+
+    🔗 top10(링크용)과 다르다 — 그쪽은 10건을 **한 메시지에 묶고** 불릿도
+    넣는다(2026-10-07 지정). 용도가 달라 둘 다 둔다.
+    """
+    d = datetime.fromtimestamp(asof, KST)
+    out: list[tuple[str, str]] = [
+        (f"📌 <b>{d.month}월 {d.day}일 {html.escape(settings.cs_top10_label)}</b>", ""),
+    ]
+    for _, r in picked:
+        url = gnews.resolve(r[K_URL] or "", _store)
+        if not url:
+            continue
+        # 주소를 **날것 그대로** 둔다. <a> 로 감싸면 복사했을 때 주소가 아니라
+        # 제목이 따라붙어 단톡에 붙여넣을 수 없다.
+        out.append((html.escape(url), url))
+    return out
+
+
+
 def render_links(picked: list, label: str, _store=None) -> list[tuple[str, str]]:
     """🔗 top10(링크용) 탭에 나갈 [(본문, 미리보기주소)].
 
@@ -2372,6 +2405,30 @@ async def run(client, store, dry_run: bool | None = None,
               f"({len(picked)}건을 묶어서)")
     else:
         print("[cstop10] 🔗 링크용 탭 thread_id 없음 — 건너뜀 "
+              "(scripts/setup_topics.py --create 로 탭을 만들어라)")
+
+    # ⬆️ top10(업로드용) — 같은 10건을 **날짜 머리말 + 주소만** 으로 보낸다.
+    # 단톡에 그대로 복붙하는 용도다(2026-11-05 발주자 지정).
+    # 링크용과 마찬가지로 본문 발행이 끝난 뒤에 한다 — 이쪽이 실패해도
+    # Top10 은 이미 나가 있어야 한다.
+    up_thread = topics.thread_id_for("cs_top10_upload")
+    if up_thread:
+        sent = 0
+        for i, (text, url) in enumerate(render_upload(picked, until, store)):
+            try:
+                mid = await publisher.send_raw(client, text, up_thread,
+                                               preview_url=url or None)
+            except Exception as exc:                      # noqa: BLE001
+                print(f"[cstop10] 업로드용 {i}번 발행 실패 — {exc}")
+                continue
+            # (scope, window_end) 가 유일키다. 링크용(+100~)과 겹치지 않게 비켜 둔다.
+            store.record_agg_message("cs_top10_upload", until + 200 + i, mid)
+            sent += 1
+            await asyncio.sleep(0.6)   # 텔레그램 초당 제한을 피한다
+        print(f"[cstop10] ⬆️ 업로드용 {sent}개 메시지 발행 "
+              f"(날짜 머리말 1 + 주소 {max(0, sent - 1)})")
+    else:
+        print("[cstop10] ⬆️ 업로드용 탭 thread_id 없음 — 건너뜀 "
               "(scripts/setup_topics.py --create 로 탭을 만들어라)")
 
     # 실린 기사를 표시해 둔다 — 다음 회차에서 다시 뽑히지 않게.

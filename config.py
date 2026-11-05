@@ -104,6 +104,7 @@ class Settings:
 
     cs_top10_label: str = os.getenv("CS_TOP10_LABEL", "Top10")
     cs_links_label: str = os.getenv("CS_LINKS_LABEL", "top10(링크용)")
+    cs_upload_label: str = os.getenv("CS_UPLOAD_LABEL", "top10(업로드용)")
     # Top10 을 뽑는 시간 창(시간). 평소에는 24 가 맞다 — '어제 아침부터 지금까지'.
     #
     # **봇이 며칠 멈췄다 살아났을 때는 넓혀야 한다.** 멈춘 동안 수집·발행이
@@ -252,6 +253,7 @@ class Settings:
             ("daily_brief",         "TG_TOPIC_DAILY_BRIEF"),
             ("cs_top10",            "TG_TOPIC_CS_TOP10"),
             ("cs_top10_links",      "TG_TOPIC_CS_TOP10_LINKS"),
+            ("cs_top10_upload",     "TG_TOPIC_CS_TOP10_UPLOAD"),
         )
     })
 
