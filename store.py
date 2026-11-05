@@ -607,6 +607,18 @@ class Store:
                       " (publish_date, keys, quality, built_at) VALUES (?,?,?,?)",
                       (publish_date, ",".join(keys), quality, built_at))
 
+    def delete_top10_draft(self, publish_date: str) -> None:
+        """기준을 어긴 초안을 지운다. 지우면 다음 회차가 새로 만든다.
+
+        발주자 지정(2026-11-05): "기준을 벗어나 있으면 지우고 다시".
+        """
+        with self._conn() as c:
+            c.execute("CREATE TABLE IF NOT EXISTS top10_draft ("
+                      "publish_date TEXT PRIMARY KEY, keys TEXT,"
+                      " quality REAL, built_at REAL)")
+            c.execute("DELETE FROM top10_draft WHERE publish_date=?",
+                      (publish_date,))
+
     def get_top10_draft(self, publish_date: str):
         """(keys, quality, built_at) 또는 None."""
         with self._conn() as c:

@@ -32,6 +32,7 @@
    한화오션·한화시스템·한화큐셀·갤러리아·한화에어로스페이스가 실제로 공유됐다.
    2026-10-01 prompts_bsp 수정(비금융 딜 포함)이 옳았다는 확증이다.
 """
+import os as _os
 import re
 
 # 2~3글자 영문 약어의 한국어 경계. \b 는 한글 앞에서 깨진다 —
@@ -297,6 +298,52 @@ CATEGORY_CAP = {
 #
 # 넓은 범주(한화·M&A·경쟁 보험사)는 부수 언급이 흔해 이 방식이 과하다.
 # 좁고 주제가 뚜렷한 축만 건다.
+
+# ── 선정 기준 단일 진실 원천 ──────────────────────────────────────
+#
+# **기준은 코드가 아니라 `SELECTION_CRITERIA.md` 에 있다.** 발주자 지정
+# (2026-11-05): "기준을 만들어서 md로 넣어두고 모든 발행은 그 기준을 참고".
+# 과장·차장이 실제로 공유한 281건에서 뽑은 분포이고, 숫자를 바꿀 일이
+# 생기면 md 의 §8 JSON 블록만 고친다 — 여기에 다시 박지 않는다.
+#
+# md 가 없거나 깨져도 발행은 멈추지 않는다. 아래 하드코딩 기본값으로
+# 떨어지고 경고만 낸다 — 기준 파일 하나 때문에 그날 브리프가 빠지는 것이
+# 더 나쁘다.
+CRITERIA_PATH = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
+                              "SELECTION_CRITERIA.md")
+
+
+def load_criteria(path: str | None = None) -> dict:
+    """`SELECTION_CRITERIA.md` §8 의 json 블록을 읽는다. 실패하면 빈 dict."""
+    import json as _json
+    import re as _re
+    try:
+        with open(path or CRITERIA_PATH, encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        print("[csfit] ⚠️ SELECTION_CRITERIA.md 없음 — 기본값으로 진행")
+        return {}
+    for block in _re.findall(r"```json\s*(\{.*?\})\s*```", text, _re.S):
+        try:
+            data = _json.loads(block)
+        except ValueError:
+            continue
+        if "category_cap" in data:
+            return data
+    print("[csfit] ⚠️ SELECTION_CRITERIA.md 에 기준 블록이 없음 — 기본값")
+    return {}
+
+
+CRITERIA = load_criteria()
+CRITERIA_FORCE = CRITERIA.get("force_promote") or []
+
+
+def force_promote(title: str) -> bool:
+    """기준 §4 의 강제 승격 신호. 적합도와 무관하게 후보로 올린다."""
+    import re as _re
+    return any(_re.search(p, title or "") for p in CRITERIA_FORCE)
+
+
 THEME_CAP = {
     "채널·GA": 1,
     "연금·WM": 1,
@@ -306,6 +353,14 @@ THEME_CAP = {
     "자본·밸류업": 2,
 }
 
+
+# md 기준값으로 덮어쓴다. md 에 없는 키는 위 기본값을 그대로 둔다.
+if CRITERIA.get("category_cap"):
+    CATEGORY_CAP.update(CRITERIA["category_cap"])
+    THEME_CAP.update({k: v for k, v in CRITERIA["category_cap"].items()
+                      if k in THEME_CAP})
+    print(f"[csfit] 선정 기준 적용: SELECTION_CRITERIA.md "
+          f"v{CRITERIA.get('version', '?')} (근거 {CRITERIA.get('corpus_size', '?')}건)")
 
 
 # ── 이슈 테마 ──────────────────────────────────────────────────

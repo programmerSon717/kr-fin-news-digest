@@ -1938,7 +1938,9 @@ async def build_draft(store, asof: float, dry_run: bool = False,
         traceback.print_exc()
     picked = select_for(store, asof)
     q = quality_of(picked)
-    prev = store.get_top10_draft(pub)
+    # **기준을 어긴 초안은 품질이 높아도 유지하지 않는다.** 중복이 든 초안은
+    # 같은 사건 두 건이 각각 점수를 보태 오히려 품질이 높게 나온다.
+    prev = store.get_top10_draft(pub) if draft_is_valid(pub, store) else None
     n = len(picked)
     avg = (q - n * 1000) if n else 0
     if prev and prev[1] >= q:
@@ -1964,6 +1966,63 @@ async def build_draft(store, asof: float, dry_run: bool = False,
             print("[draft] 게시 실패 —")
             traceback.print_exc()
     return {"replaced": True, "count": n, "quality": q}
+
+
+
+def draft_violations(keys, store) -> list:
+    """저장된 초안이 `SELECTION_CRITERIA.md` 의 절대 규칙을 어겼는가.
+
+    발주자 지정(2026-11-05): "내일 올릴 예정인 top10 이 그 기준을 벗어나
+    있으면 지우고 다시".
+
+    초안은 한 번 굳으면 품질 비교를 통과해야만 갈린다. 그런데 **중복이 든
+    초안은 품질이 높게 나온다** — 같은 사건 두 건이 각각 점수를 보태기
+    때문이다. 그래서 중복은 스스로 빠지지 않는다. 실측(2026-11-05):
+    홍콩 ELS 과징금 확정 2건이 cluster_id 가 같은 채로 11/06 초안 9·10번에
+    남아 있었다. 품질 10069.9 로 어떤 재생성보다 높았다.
+
+    여기서 잡는 것은 **되돌릴 수 없는 규칙(A1·A2)** 뿐이다. 범주 상한은
+    자리가 비는 날 어쩔 수 없이 넘길 수 있어 경고만 하고 폐기하지 않는다.
+    """
+    if not keys:
+        return []
+    rows = [r for r in (store.rows_by_keys(list(keys)) or []) if r]
+    bad = []
+    seen: dict = {}
+    for r in rows:
+        cid = r[K_CLUSTER] if len(r) > K_CLUSTER else ""
+        head = r[K_HEAD] or ""
+        if cid and cid in seen:
+            bad.append(f"A1 같은 사건 2건({cid}): {seen[cid][:30]} ↔ {head[:30]}")
+        elif cid:
+            seen[cid] = head
+    for i, r in enumerate(rows):
+        for q in rows[:i]:
+            if _same_rows(r, q):
+                msg = (f"A1 같은 사건 2건: {(q[K_HEAD] or '')[:30]} ↔ "
+                       f"{(r[K_HEAD] or '')[:30]}")
+                if msg not in bad:
+                    bad.append(msg)
+    return bad
+
+
+def draft_is_valid(pub: str, store) -> bool:
+    """초안이 기준을 지키고 있으면 True. 어겼으면 **지우고** False."""
+    d = store.get_top10_draft(pub)
+    if not d or not d[0]:
+        return False
+    bad = draft_violations(d[0], store)
+    if not bad:
+        return True
+    print(f"[draft] ⚠️ {pub} 초안이 선정 기준을 어겼다 — 폐기하고 다시 만든다")
+    for b in bad:
+        print(f"[draft]    ✗ {b}")
+    try:
+        store.delete_top10_draft(pub)
+    except Exception:                                       # noqa: BLE001
+        store.save_top10_draft(pub, [], 0.0, 0.0)
+    return False
+
 
 
 def draft_due(store, now: float | None = None) -> tuple[bool, str]:
@@ -2027,7 +2086,7 @@ def draft_due(store, now: float | None = None) -> tuple[bool, str]:
     # 그보다 적은 초안은 어차피 버려지므로 없는 것과 같다.
     if store is not None:
         pub = datetime.fromtimestamp(next_publish_ts(now), KST).strftime("%Y-%m-%d")
-        d = store.get_top10_draft(pub)
+        d = store.get_top10_draft(pub) if draft_is_valid(pub, store) else None
         need = max(1, int(settings.daily_brief_count * 0.8))
         if not d or not d[0] or len(d[0]) < need:
             # 한 시간에 한 번으로 묶는다. 20분마다 다시 뽑으면 모델 호출만 탄다.
@@ -2085,7 +2144,9 @@ async def run(client, store, dry_run: bool | None = None,
     # 즉석에서 다시 뽑으면 그 사이 들어온 기사로 결과가 달라져, 미리 확인한
     # 의미가 없어진다(2026-10-05 사용자 지정).
     _pub = datetime.fromtimestamp(asof or until, KST).strftime("%Y-%m-%d")
-    _draft = store.get_top10_draft(_pub)
+    # **발행 직전에도 한 번 더 본다.** 초안이 굳은 뒤 기준이 바뀌었을 수 있고,
+    # 어긴 초안을 그대로 쓰면 06:50 에 중복이 그대로 나간다(2026-11-05).
+    _draft = store.get_top10_draft(_pub) if draft_is_valid(_pub, store) else None
     if _draft and _draft[0]:
         _rows = store.rows_by_keys(_draft[0])
         _min_ok = max(1, int(settings.daily_brief_count * 0.8))
