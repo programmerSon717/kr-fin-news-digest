@@ -361,11 +361,35 @@ def _acceptable(r, picked: list) -> bool:
     if shared.already_shared(r[K_HEAD] or ""):
         return False
     return not any(
-        _same(r[K_HEAD] or "", r[K_ENT] or "",
-              r[K_ETYPE] if len(r) > K_ETYPE else "",
-              q[K_HEAD] or "", q[K_ENT] or "",
-              q[K_ETYPE] if len(q) > K_ETYPE else "")
+        _same_rows(r, q)
         for _, q in picked)
+
+
+def _same_rows(r, q) -> bool:
+    """행 대 행 같은 사건 판정. **저장된 fingerprint 가 같으면 즉시 같은 사건.**
+
+    `_same()` 은 규제기관만 겹치는 경우 엔티티 신호를 통째로 지운다
+    (`_REGULATOR_ENTS`). 그 결과 **fingerprint 가 글자 하나 다르지 않아도**
+    제목 유사도만으로 갈린다. 실측(2026-11-05): 홍콩 ELS 과징금 확정 기사
+    두 건이 둘 다 `금융감독원+금융위원회|regulation|6920` 인데
+      · 교집합 {금융위원회, 금융감독원} → 규제기관뿐이라 제거 → 공집합
+      · 제목 유사도 0.143 (SOFT 0.25 미달) · 변별어 0개
+    로 `_same()` 이 False 를 냈고, select() 1차에서 하나로 접힌 뒤 보충
+    경로(topup)가 나머지를 **되올려** Top10 9·10번에 나란히 실렸다.
+
+    fingerprint 동일 = 주체·action 그룹·시간창이 모두 같다는 뜻이고,
+    select() 1차가 이미 그것을 한 사건으로 취급한다. 보충 경로만 다른
+    기준을 쓰면 1차가 접은 것을 되돌리게 된다 — 기준을 한쪽으로 맞춘다.
+    과잉병합 위험은 없다. 1차가 묶는 것보다 더 묶지 않는다.
+    """
+    cr = r[K_CLUSTER] if len(r) > K_CLUSTER else ""
+    cq = q[K_CLUSTER] if len(q) > K_CLUSTER else ""
+    if cr and cq and cr == cq:
+        return True
+    return _same(r[K_HEAD] or "", r[K_ENT] or "",
+                 r[K_ETYPE] if len(r) > K_ETYPE else "",
+                 q[K_HEAD] or "", q[K_ENT] or "",
+                 q[K_ETYPE] if len(q) > K_ETYPE else "")
 
 
 def _coverage_of(r) -> int:
@@ -601,9 +625,7 @@ def select(rows: list, count: int | None = None, store=None,
                         key=lambda x: (-_coverage_of(x[1]), -x[0])):
         dup = -1
         for i, (sc2, r2) in enumerate(merged):
-            if _same(r[K_HEAD] or "", r[K_ENT] or "", r[K_ETYPE] if len(r) > K_ETYPE else "",
-                     r2[K_HEAD] or "", r2[K_ENT] or "",
-                     r2[K_ETYPE] if len(r2) > K_ETYPE else ""):
+            if _same_rows(r, r2):
                 dup = i
                 break
         if dup >= 0:
@@ -765,10 +787,7 @@ def select(rows: list, count: int | None = None, store=None,
                 continue
             if csfit.primary_category(r[K_HEAD] or "") != catg:
                 continue
-            if any(_same(r[K_HEAD] or "", r[K_ENT] or "",
-                         r[K_ETYPE] if len(r) > K_ETYPE else "",
-                         q[K_HEAD] or "", q[K_ENT] or "",
-                         q[K_ETYPE] if len(q) > K_ETYPE else "")
+            if any(_same_rows(r, q)
                    for _, q in picked):
                 continue
             _th = csfit.themes_of(r[K_HEAD] or "", r[K_ENT] or "")
@@ -829,10 +848,7 @@ def select(rows: list, count: int | None = None, store=None,
         # **최종 안전장치 — 이미 뽑은 것과 같은 사건이면 넣지 않는다.**
         # 앞 단계에서 접었더라도 최소배정·deferred 경로로 들어올 수 있다.
         # 10건은 서로 다른 사건이어야 한다(2026-10-02 사용자 지정).
-        if any(_same(r[K_HEAD] or "", r[K_ENT] or "",
-                     r[K_ETYPE] if len(r) > K_ETYPE else "",
-                     q[K_HEAD] or "", q[K_ENT] or "",
-                     q[K_ETYPE] if len(q) > K_ETYPE else "")
+        if any(_same_rows(r, q)
                for _, q in picked):
             continue
         # **유료기사면 같은 사건의 다른 매체 기사로 갈아탄다.**
@@ -861,10 +877,7 @@ def select(rows: list, count: int | None = None, store=None,
     for sc, r in deferred:
         if len(picked) >= count:
             break
-        if any(_same(r[K_HEAD] or "", r[K_ENT] or "",
-                     r[K_ETYPE] if len(r) > K_ETYPE else "",
-                     q[K_HEAD] or "", q[K_ENT] or "",
-                     q[K_ETYPE] if len(q) > K_ETYPE else "")
+        if any(_same_rows(r, q)
                for _, q in picked):
             continue
         # **상한을 여기서도 지킨다.** deferred 는 정의상 범주·주제·엔티티
@@ -1278,10 +1291,7 @@ def fold_by_event(rows: list) -> list:
     """
     kept: list = []
     for r in sorted(rows, key=lambda x: -_coverage_of(x)):
-        if any(_same(r[K_HEAD] or "", r[K_ENT] or "",
-                     r[K_ETYPE] if len(r) > K_ETYPE else "",
-                     q[K_HEAD] or "", q[K_ENT] or "",
-                     q[K_ETYPE] if len(q) > K_ETYPE else "")
+        if any(_same_rows(r, q)
                for q in kept):
             continue
         kept.append(r)
@@ -1370,10 +1380,7 @@ def topup(picked: list, rows: list, store, now: float, want: int,
             print(f"[cstop10] 보충 제외(기발행): {(r[K_HEAD] or '')[:38]}")
             continue
         # **같은 사건은 절대 두 번 싣지 않는다** (사용자 지정).
-        if any(_same(r[K_HEAD] or "", r[K_ENT] or "",
-                     r[K_ETYPE] if len(r) > K_ETYPE else "",
-                     q[K_HEAD] or "", q[K_ENT] or "",
-                     q[K_ETYPE] if len(q) > K_ETYPE else "")
+        if any(_same_rows(r, q)
                for _, q in picked):
             continue
         ents = [e for e in (r[K_ENT] or "").split(",") if e]
@@ -1551,10 +1558,7 @@ def fill_in_window(picked: list, rows: list, store, want: int,
             print(f"[cstop10] 창 안 보충 제외(기발행 사건): "
                   f"{(r[K_HEAD] or '')[:36]}")
             continue
-        if any(_same(r[K_HEAD] or "", r[K_ENT] or "",
-                     r[K_ETYPE] if len(r) > K_ETYPE else "",
-                     q[K_HEAD] or "", q[K_ENT] or "",
-                     q[K_ETYPE] if len(q) > K_ETYPE else "")
+        if any(_same_rows(r, q)
                for _, q in picked):
             continue
         # 사건 덩어리는 상한을 풀어도 지킨다 — 어제 나간 이슈가 되돌아오면

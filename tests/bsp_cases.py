@@ -970,6 +970,72 @@ def test_regress_20261104():
           cstop10.quality_of(stale) > cstop10.quality_of(fresh[:9]), True)
 
 
+def test_regress_20261105():
+    """2026-11-05 발주자 지적 회귀 — "왜 계속 중복뉴스 나오냐".
+
+    두 결함이 겹쳤다.
+      E1 `cstop10._same()` 이 **저장된 fingerprint 동일성을 보지 않는다.**
+         홍콩 ELS 과징금 확정 두 건이 둘 다
+         `금융감독원+금융위원회|regulation|6920` 인데, 교집합이 규제기관뿐이라
+         `_REGULATOR_ENTS` 게이트가 엔티티 신호를 지웠고(공집합), 제목 유사도
+         0.143·변별어 0 으로 False 가 났다. select() 1차는 cluster_id 로 하나를
+         접었지만 보충 경로(topup)는 `_same()` 만 써서 나머지를 되올렸다 —
+         11/06 초안 9·10번에 나란히 실렸다.
+      E2 카드사가 엔티티 사전에 **한 곳도 없어** `BC카드` 와 `비씨카드` 가 다른
+         엔티티로 갈렸다. 같은 AI 에이전트 도입 발표가 11/05 Top10 에 두 번
+         실렸다(유사도 0.231, SOFT 0.25 에 0.019 차로 미달).
+    """
+    import cstop10, events
+    from config import canonical_entity
+    print("\n[회귀 2026-11-05] 중복 2결함")
+
+    # ── E2: 카드사 별칭 ────────────────────────────────────────────────
+    check("BC카드 가 엔티티 사전에 있다", canonical_entity("BC카드"), "비씨카드")
+    check("BC카드·비씨카드가 한 엔티티", canonical_entity("BC카드"),
+          canonical_entity("비씨카드"))
+    C1 = ("BC카드, 전 직원에 AI 에이전트 도입…연간 10만2000시간 업무 절감 추진",
+          "BC카드", "product")
+    C2 = ("비씨카드, 전 임직원 대상 AI 에이전트 전면 도입", "비씨카드", "product")
+    check("BC카드 2건은 같은 사건",
+          cstop10._same(C1[0], C1[1], C1[2], C2[0], C2[1], C2[2]), True)
+    check("BC카드 2건 fingerprint 동일",
+          events.fingerprint({"main_entities": ["BC카드"], "event_type": "product"}, ""),
+          events.fingerprint({"main_entities": ["비씨카드"], "event_type": "product"}, ""))
+
+    # ── E1: fingerprint 동일 → 행 대 행 판정 ──────────────────────────
+    def _row(head, ents, etype, clu):
+        r = [""] * 15
+        r[cstop10.K_HEAD] = head
+        r[cstop10.K_ENT] = ents
+        r[cstop10.K_ETYPE] = etype
+        r[cstop10.K_CLUSTER] = clu
+        return tuple(r)
+
+    ELS = "금융감독원+금융위원회|regulation|6920"
+    E_A = _row("홍콩 ELS 과징금 3,712억 원 확정…금융위 역대 최대",
+               "금융위원회,금융감독원", "regulation", ELS)
+    E_B = _row("홍콩ELS 과징금 3천700억 원 확정…원안 대비 대폭 감경",
+               "금융위원회,금융감독원", "regulation", ELS)
+    check("규제기관 게이트로 _same 은 여전히 못 잡는다 (원인 고정)",
+          cstop10._same(E_A[cstop10.K_HEAD], E_A[cstop10.K_ENT], E_A[cstop10.K_ETYPE],
+                        E_B[cstop10.K_HEAD], E_B[cstop10.K_ENT], E_B[cstop10.K_ETYPE]),
+          False)
+    check("fingerprint 동일하면 _same_rows 가 잡는다",
+          cstop10._same_rows(E_A, E_B), True)
+
+    # ── 과잉병합 가드: cluster_id 가 다르면 되올리지 않는다 ─────────────
+    G_A = _row("KAI 노조, 한화 인수 반대 상경 집회", "한국항공우주산업",
+               "governance", "한국항공우주산업|governance|6920")
+    G_B = _row("한화생명, 후순위채 수요예측 5천억 확보", "한화생명",
+               "market", "한화생명|market|6920")
+    check("cluster_id 다른 무관 2건은 안 묶인다", cstop10._same_rows(G_A, G_B), False)
+    check("cluster_id 가 비면 _same 판정으로 내려간다",
+          cstop10._same_rows(_row(G_A[cstop10.K_HEAD], G_A[cstop10.K_ENT],
+                                  G_A[cstop10.K_ETYPE], ""),
+                             _row(G_B[cstop10.K_HEAD], G_B[cstop10.K_ENT],
+                                  G_B[cstop10.K_ETYPE], "")), False)
+
+
 def main():
     print("═" * 78)
     print("  Strategy Pulse 회귀 검사")
@@ -981,6 +1047,7 @@ def main():
     test_cstop10()
     test_cstop10_dedup()
     test_regress_20261104()
+    test_regress_20261105()
     test_cstop10_criteria()
     test_iv_paywall()
     test_shared_and_ads()

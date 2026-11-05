@@ -162,6 +162,34 @@
     ],
     "삼성그룹": [
       "삼성"
+    ],
+    "비씨카드": [
+      "BC카드",
+      "BC Card",
+      "비씨카드㈜",
+      "BCcard"
+    ],
+    "신한카드": [
+      "Shinhan Card"
+    ],
+    "삼성카드": [
+      "Samsung Card"
+    ],
+    "KB국민카드": [
+      "국민카드",
+      "KB카드"
+    ],
+    "현대카드": [
+      "Hyundai Card"
+    ],
+    "롯데카드": [
+      "Lotte Card"
+    ],
+    "하나카드": [
+      "Hana Card"
+    ],
+    "우리카드": [
+      "Woori Card"
     ]
   },
   "bigtech": {
